@@ -1,0 +1,40 @@
+# Binários e artefatos do projeto
+/gotv
+/bin/
+/data/
+*.db
+
+# Variáveis de ambiente e segredos
+.env
+.env.*
+!.env.example
+
+# Go — build e cache
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+*.coverprofile
+.gocache/
+.gomodcache/
+
+# Vendor (descomente se não versionar dependências)
+# vendor/
+
+# IDEs e editores
+.idea/
+*.iml
+
+# SO e temporários
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+*.log
+tmp/
+temp/
