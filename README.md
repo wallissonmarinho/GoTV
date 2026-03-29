@@ -111,6 +111,41 @@ Admin auth: `Authorization: Bearer <key>` or header `X-Admin-API-Key: <key>`.
 
 An in-process ticker runs `PlaylistMergeService.Run` every `GOTV_MERGE_INTERVAL`. Manual `POST /api/v1/rebuild` uses the same path (serialized with a mutex). A merge also runs once shortly after process start.
 
+## Deploy (Fly.io)
+
+SQLite na Fly precisa de **volume** persistente (o filesystem do container é efémero).
+
+1. Instale a CLI: [flyctl](https://fly.io/docs/hands-on/install-flyctl/).
+2. `cd` no repositório e ajuste `app` em `fly.toml` (ou use o nome gerado por `fly launch`).
+3. Crie o volume na **mesma região** que `primary_region` (ex. `gru`):
+
+   ```bash
+   fly volumes create gotv_data --region gru --size 1
+   ```
+
+4. Segredos (mínimo: chave admin; sem OTLP, desative exportadores para evitar timeouts ao arrancar):
+
+   ```bash
+   fly secrets set GOTV_ADMIN_API_KEY="sua-chave-forte" OTEL_SDK_DISABLED=true
+   ```
+
+5. Deploy:
+
+   ```bash
+   fly deploy
+   ```
+
+### GitHub Actions → Fly
+
+1. Cria um token de deploy: `fly tokens create deploy -x 999999h` (ou no dashboard Fly: **Access Tokens**).
+2. No GitHub: **Settings → Secrets and variables → Actions** → cria `FLY_API_TOKEN` com esse valor.
+3. O workflow `.github/workflows/fly-deploy.yml` corre em **push** para `main` ou `master` (e pode disparar manualmente em **Actions → fly-deploy → Run workflow**). Primeiro corre `go test ./...`, depois `flyctl deploy --remote-only` (build na infra da Fly).
+4. O nome da app vem do `fly.toml` (`app = "..."`); o token tem de ter acesso a essa app.
+
+- A imagem escuta na porta **8080** (`GOTV_ADDR` no `Dockerfile`; a Fly encaminha para `internal_port`).
+- Dados SQLite: `GOTV_DATA_DIR=/app/data` (volume montado em `/app/data`).
+- **Postgres:** `fly secrets set DATABASE_URL="postgres://..."`, remova a secção `[mounts]` do `fly.toml` (ou não monte volume) e use uma base gerida (Neon, Supabase, etc.).
+
 ## Deploy (Heroku-style)
 
 1. Set buildpack: **Heroku Go** (or build `bin/gotv` in CI and use a slug with `Procfile`).
