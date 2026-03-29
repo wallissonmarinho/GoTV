@@ -3,7 +3,7 @@
 # 2. Crie o volume SQLite na mesma região: fly volumes create gotv_data --region gru --size 1
 # 3. Com Postgres (DATABASE_URL), remova a secção [mounts] e defina o secret DATABASE_URL.
 
-app = "gotv-br"
+app = "gotv"
 primary_region = "gru"
 
 [build]
