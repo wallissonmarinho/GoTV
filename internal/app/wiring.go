@@ -35,8 +35,8 @@ func HydrateStore(ctx context.Context, repo ports.CatalogRepository, mem *state.
 }
 
 // NewCatalogAdmin wires catalog admin use case with the same DB handle as repository and unit of work.
-func NewCatalogAdmin(repo *storage.Catalog) *services.CatalogAdminService {
-	return services.NewCatalogAdminService(repo, repo)
+func NewCatalogAdmin(repo *storage.Catalog, log ports.AppLog) *services.CatalogAdminService {
+	return services.NewCatalogAdminService(repo, repo, log)
 }
 
 // MergeRuntimeOptions configures outbound HTTP, probing, and encoding for the merge service.

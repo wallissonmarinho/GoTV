@@ -1,4 +1,6 @@
-package storage
+// Package migrate runs embedded SQL schema migrations (Goose) for SQLite and PostgreSQL.
+// It is infrastructure bootstrap, not a hexagonal port — keep separate from storage adapters.
+package migrate
 
 import (
 	"context"

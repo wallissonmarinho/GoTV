@@ -6,6 +6,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/wallissonmarinho/GoTV/internal/core/domain"
 	"github.com/wallissonmarinho/GoTV/internal/core/ports"
 )
@@ -44,27 +46,51 @@ type catalogRepo struct {
 	pg bool
 }
 
-var _ ports.CatalogRepository = (*catalogRepo)(nil)
+func (r *catalogRepo) FindM3USourceByURL(ctx context.Context, url string) (*domain.M3USource, error) {
+	var row *sql.Row
+	if r.pg {
+		row = r.ex.QueryRowContext(ctx,
+			`SELECT id, url, label, created_at FROM m3u_sources WHERE url = $1`, url)
+	} else {
+		row = r.ex.QueryRowContext(ctx,
+			`SELECT id, url, label, created_at FROM m3u_sources WHERE url = ?`, url)
+	}
+	var s domain.M3USource
+	if r.pg {
+		if err := row.Scan(&s.ID, &s.URL, &s.Label, &s.CreatedAt); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		return &s, nil
+	}
+	var created string
+	if err := row.Scan(&s.ID, &s.URL, &s.Label, &created); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	s.CreatedAt, _ = time.Parse(time.RFC3339, created)
+	return &s, nil
+}
 
 func (r *catalogRepo) CreateM3USource(ctx context.Context, url, label string) (*domain.M3USource, error) {
 	now := time.Now().UTC()
+	id := uuid.New().String()
 	if r.pg {
-		var id int64
-		err := r.ex.QueryRowContext(ctx,
-			`INSERT INTO m3u_sources (url, label, created_at) VALUES ($1,$2,$3) RETURNING id`,
-			url, label, now).Scan(&id)
+		_, err := r.ex.ExecContext(ctx,
+			`INSERT INTO m3u_sources (id, url, label, created_at) VALUES ($1,$2,$3,$4)`,
+			id, url, label, now)
 		if err != nil {
 			return nil, err
 		}
 		return &domain.M3USource{ID: id, URL: url, Label: label, CreatedAt: now}, nil
 	}
-	res, err := r.ex.ExecContext(ctx,
-		`INSERT INTO m3u_sources (url, label, created_at) VALUES (?,?,?)`,
-		url, label, now.Format(time.RFC3339))
-	if err != nil {
-		return nil, err
-	}
-	id, err := res.LastInsertId()
+	_, err := r.ex.ExecContext(ctx,
+		`INSERT INTO m3u_sources (id, url, label, created_at) VALUES (?,?,?,?)`,
+		id, url, label, now.Format(time.RFC3339))
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +98,7 @@ func (r *catalogRepo) CreateM3USource(ctx context.Context, url, label string) (*
 }
 
 func (r *catalogRepo) ListM3USources(ctx context.Context) ([]domain.M3USource, error) {
-	rows, err := r.ex.QueryContext(ctx, `SELECT id, url, label, created_at FROM m3u_sources ORDER BY id ASC`)
+	rows, err := r.ex.QueryContext(ctx, `SELECT id, url, label, created_at FROM m3u_sources ORDER BY created_at ASC, url ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +122,7 @@ func (r *catalogRepo) ListM3USources(ctx context.Context) ([]domain.M3USource, e
 	return out, rows.Err()
 }
 
-func (r *catalogRepo) DeleteM3USource(ctx context.Context, id int64) error {
+func (r *catalogRepo) DeleteM3USource(ctx context.Context, id string) error {
 	var res sql.Result
 	var err error
 	if r.pg {
@@ -119,23 +145,19 @@ func (r *catalogRepo) DeleteM3USource(ctx context.Context, id int64) error {
 
 func (r *catalogRepo) CreateEPGSource(ctx context.Context, url, label string) (*domain.EPGSource, error) {
 	now := time.Now().UTC()
+	id := uuid.New().String()
 	if r.pg {
-		var id int64
-		err := r.ex.QueryRowContext(ctx,
-			`INSERT INTO epg_sources (url, label, created_at) VALUES ($1,$2,$3) RETURNING id`,
-			url, label, now).Scan(&id)
+		_, err := r.ex.ExecContext(ctx,
+			`INSERT INTO epg_sources (id, url, label, created_at) VALUES ($1,$2,$3,$4)`,
+			id, url, label, now)
 		if err != nil {
 			return nil, err
 		}
 		return &domain.EPGSource{ID: id, URL: url, Label: label, CreatedAt: now}, nil
 	}
-	res, err := r.ex.ExecContext(ctx,
-		`INSERT INTO epg_sources (url, label, created_at) VALUES (?,?,?)`,
-		url, label, now.Format(time.RFC3339))
-	if err != nil {
-		return nil, err
-	}
-	id, err := res.LastInsertId()
+	_, err := r.ex.ExecContext(ctx,
+		`INSERT INTO epg_sources (id, url, label, created_at) VALUES (?,?,?,?)`,
+		id, url, label, now.Format(time.RFC3339))
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +165,7 @@ func (r *catalogRepo) CreateEPGSource(ctx context.Context, url, label string) (*
 }
 
 func (r *catalogRepo) ListEPGSources(ctx context.Context) ([]domain.EPGSource, error) {
-	rows, err := r.ex.QueryContext(ctx, `SELECT id, url, label, created_at FROM epg_sources ORDER BY id ASC`)
+	rows, err := r.ex.QueryContext(ctx, `SELECT id, url, label, created_at FROM epg_sources ORDER BY created_at ASC, url ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +189,7 @@ func (r *catalogRepo) ListEPGSources(ctx context.Context) ([]domain.EPGSource, e
 	return out, rows.Err()
 }
 
-func (r *catalogRepo) DeleteEPGSource(ctx context.Context, id int64) error {
+func (r *catalogRepo) DeleteEPGSource(ctx context.Context, id string) error {
 	var res sql.Result
 	var err error
 	if r.pg {
@@ -275,3 +297,6 @@ FROM merge_snapshot WHERE id = 1`).Scan(
 	}
 	return snap, nil
 }
+
+// Compile-time check: *catalogRepo implements ports.CatalogRepository (*sql.DB or *sql.Tx).
+var _ ports.CatalogRepository = (*catalogRepo)(nil)

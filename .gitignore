@@ -10,6 +10,9 @@
 !.env.example
 
 # Go — build e cache
+# Binários gerados pelo debugger (VS Code / Cursor / Delve ao dar “Start Debugging”)
+__debug_bin*
+
 *.exe
 *.exe~
 *.dll

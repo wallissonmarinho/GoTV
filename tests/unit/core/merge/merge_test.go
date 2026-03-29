@@ -71,6 +71,43 @@ func TestRemapEPG_matchesAccentDifferenceInID(t *testing.T) {
 	require.Equal(t, "RecordTVGoias.br@SD", out.Programmes[0].Channel)
 }
 
+func TestRemapEPG_nameMatch_requiresUnambiguousM3ULabel(t *testing.T) {
+	perM3U := [][]domain.Channel{{
+		{Name: "TV Cultura HD", URL: "http://s/tvc1", TVGID: "TVCultura.br@SD"},
+		{Name: "TV Cultura HD", URL: "http://s/tvc2", TVGID: "TVCulturaMirim.br@SD"},
+	}}
+	epg := &domain.EPGData{
+		Channels: []domain.EPGChannel{
+			{ID: "foreign.epg.id", DisplayNames: []string{"TV Cultura HD"}},
+		},
+		Programmes: []domain.EPGProgramme{
+			{Channel: "foreign.epg.id", Start: "20240101120000 +0000", Stop: "20240101130000 +0000", Titles: []string{"P"}},
+		},
+	}
+	merged := merge.MergeChannelsByURLOrder(perM3U)
+	out := merge.RemapEPG(merged, perM3U, []*domain.EPGData{epg})
+	require.Empty(t, out.Programmes, "ambiguous display name must not pick an arbitrary stream")
+}
+
+func TestRemapEPG_nameMatch_whenLabelUniqueInBatch(t *testing.T) {
+	perM3U := [][]domain.Channel{{
+		{Name: "Meu Canal Único XYZ", URL: "http://s/only", TVGID: "Unique.br@SD"},
+		{Name: "Outro Nome", URL: "http://s/o", TVGID: "Other.br@SD"},
+	}}
+	epg := &domain.EPGData{
+		Channels: []domain.EPGChannel{
+			{ID: "orphan.xml.id", DisplayNames: []string{"Meu Canal Único XYZ"}},
+		},
+		Programmes: []domain.EPGProgramme{
+			{Channel: "orphan.xml.id", Start: "20240101120000 +0000", Stop: "20240101130000 +0000", Titles: []string{"P"}},
+		},
+	}
+	merged := merge.MergeChannelsByURLOrder(perM3U)
+	out := merge.RemapEPG(merged, perM3U, []*domain.EPGData{epg})
+	require.Len(t, out.Programmes, 1)
+	require.Equal(t, "Unique.br@SD", out.Programmes[0].Channel)
+}
+
 func TestRemapEPG_matchesAliasSaoPauloToSP(t *testing.T) {
 	perM3U := [][]domain.Channel{{
 		{Name: "Record TV SP", URL: "http://s/recsp", TVGID: "RecordTVSaoPaulo.br@SD"},

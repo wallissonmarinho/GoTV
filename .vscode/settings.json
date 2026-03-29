@@ -1,6 +1,0 @@
-{
-  "go.delveConfig": {
-    "debugAdapter": "dlv-dap"
-  },
-  "go.toolsManagement.autoUpdate": true
-}

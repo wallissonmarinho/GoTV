@@ -110,13 +110,13 @@ func (s *PlaylistMergeService) Run(ctx context.Context) domain.MergeResult {
 	for _, src := range m3uSources {
 		body, err := s.HTTP.Get(ctx, src.URL)
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("m3u source %d (%s): %v", src.ID, src.Label, err))
+			errs = append(errs, fmt.Sprintf("m3u source %s (%s): %v", src.ID, src.Label, err))
 			batches = append(batches, nil)
 			continue
 		}
 		chans, perr := s.M3U.Parse(sanitizeM3UText(string(body)))
 		if perr != nil {
-			errs = append(errs, fmt.Sprintf("m3u source %d parse: %v", src.ID, perr))
+			errs = append(errs, fmt.Sprintf("m3u source %s parse: %v", src.ID, perr))
 			batches = append(batches, nil)
 			continue
 		}
@@ -132,18 +132,21 @@ func (s *PlaylistMergeService) Run(ctx context.Context) domain.MergeResult {
 	for _, src := range epgSources {
 		body, err := s.HTTP.Get(ctx, src.URL)
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("epg source %d (%s): %v", src.ID, src.Label, err))
+			errs = append(errs, fmt.Sprintf("epg source %s (%s): %v", src.ID, src.Label, err))
 			continue
 		}
 		ed, xerr := s.XMLTV.Parse(body)
 		if xerr != nil {
-			errs = append(errs, fmt.Sprintf("epg source %d parse: %v", src.ID, xerr))
+			errs = append(errs, fmt.Sprintf("epg source %s parse: %v", src.ID, xerr))
 			continue
 		}
 		epgs = append(epgs, ed)
 	}
-	mergedEPG := merge.MergeIndependentEPGs(epgs)
-	outEPG := merge.BuildOutputEPGForPlaylist(merged, mergedEPG)
+	// RemapEPG pairs each EPG source with the M3U source at the same index (list order), maps XML
+	// channel ids to stream URLs, then to merged playlist tvg-ids. MergeIndependentEPGs +
+	// BuildOutputEPGForPlaylist would drop all programmes when EPG channel ids ≠ playlist tvg-id
+	// (e.g. epg.pw numeric ids vs iptv-org tvg-id strings).
+	outEPG := merge.RemapEPG(merged, batches, epgs)
 
 	m3uBytes := s.M3UOut.Build(merged)
 	epgBytes := s.EPGOut.Build(outEPG)

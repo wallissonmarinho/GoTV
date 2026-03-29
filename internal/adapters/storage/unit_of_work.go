@@ -7,8 +7,6 @@ import (
 	"github.com/wallissonmarinho/GoTV/internal/core/ports"
 )
 
-var _ ports.UnitOfWork = (*Catalog)(nil)
-
 // WithinTx runs fn with a CatalogRepository backed by a single transaction.
 // On error or panic, the transaction is rolled back; on success it commits.
 func (c *Catalog) WithinTx(ctx context.Context, fn func(ctx context.Context, repo ports.CatalogRepository) error) (err error) {
@@ -34,3 +32,6 @@ func (c *Catalog) WithinTx(ctx context.Context, fn func(ctx context.Context, rep
 	err = tx.Commit()
 	return err
 }
+
+// Compile-time check: *Catalog implements ports.UnitOfWork.
+var _ ports.UnitOfWork = (*Catalog)(nil)

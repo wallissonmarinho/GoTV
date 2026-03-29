@@ -63,7 +63,7 @@ func main() {
 		MaxProbes:    intEnv("GOTV_MAX_PROBES", 500),
 		ProbeWorkers: intEnv("GOTV_PROBE_WORKERS", 32),
 	})
-	catalogAdmin := app.NewCatalogAdmin(cat)
+	catalogAdmin := app.NewCatalogAdmin(cat, observability.SlogTrace{})
 
 	if getenv("GIN_MODE", "") == "release" {
 		gin.SetMode(gin.ReleaseMode)

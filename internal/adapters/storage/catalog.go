@@ -10,6 +10,7 @@ import (
 
 	"github.com/wallissonmarinho/GoTV/internal/core/domain"
 	"github.com/wallissonmarinho/GoTV/internal/core/ports"
+	persistmigrate "github.com/wallissonmarinho/GoTV/internal/persistence/migrate"
 )
 
 // Catalog implements ports.CatalogRepository and ports.UnitOfWork for SQLite or PostgreSQL.
@@ -17,8 +18,6 @@ type Catalog struct {
 	db *sql.DB
 	pg bool
 }
-
-var _ ports.CatalogRepository = (*Catalog)(nil)
 
 // OpenDB opens and pings a database handle without running migrations.
 func OpenDB(dsn string) (*sql.DB, bool, error) {
@@ -51,7 +50,7 @@ func Open(dsn string) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := RunMigrations(context.Background(), db, pg); err != nil {
+	if err := persistmigrate.RunMigrations(context.Background(), db, pg); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -67,6 +66,10 @@ func (c *Catalog) base() *catalogRepo {
 	return &catalogRepo{ex: c.db, pg: c.pg}
 }
 
+func (c *Catalog) FindM3USourceByURL(ctx context.Context, url string) (*domain.M3USource, error) {
+	return c.base().FindM3USourceByURL(ctx, url)
+}
+
 func (c *Catalog) CreateM3USource(ctx context.Context, url, label string) (*domain.M3USource, error) {
 	return c.base().CreateM3USource(ctx, url, label)
 }
@@ -75,7 +78,7 @@ func (c *Catalog) ListM3USources(ctx context.Context) ([]domain.M3USource, error
 	return c.base().ListM3USources(ctx)
 }
 
-func (c *Catalog) DeleteM3USource(ctx context.Context, id int64) error {
+func (c *Catalog) DeleteM3USource(ctx context.Context, id string) error {
 	return c.base().DeleteM3USource(ctx, id)
 }
 
@@ -87,7 +90,7 @@ func (c *Catalog) ListEPGSources(ctx context.Context) ([]domain.EPGSource, error
 	return c.base().ListEPGSources(ctx)
 }
 
-func (c *Catalog) DeleteEPGSource(ctx context.Context, id int64) error {
+func (c *Catalog) DeleteEPGSource(ctx context.Context, id string) error {
 	return c.base().DeleteEPGSource(ctx, id)
 }
 
@@ -98,3 +101,5 @@ func (c *Catalog) SaveSnapshot(ctx context.Context, snap domain.MergeSnapshot) e
 func (c *Catalog) LoadSnapshot(ctx context.Context) (domain.MergeSnapshot, error) {
 	return c.base().LoadSnapshot(ctx)
 }
+
+var _ ports.CatalogRepository = (*Catalog)(nil)

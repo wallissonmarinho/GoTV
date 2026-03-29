@@ -1,11 +1,14 @@
 package ginapi
 
 import (
+	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
+	"github.com/wallissonmarinho/GoTV/internal/core/domain"
 )
 
 func (h *handlers) registerEPGSourceRoutes(admin *gin.RouterGroup) {
@@ -27,6 +30,10 @@ func (h *handlers) postEPGSource(c *gin.Context) {
 	}
 	created, err := h.deps.Catalog.CreateEPGSource(c.Request.Context(), u, strings.TrimSpace(body.Label))
 	if err != nil {
+		if errors.Is(err, domain.ErrInvalidSourceURL) || errors.Is(err, domain.ErrInvalidEPGSourceURLSuffix) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -43,8 +50,8 @@ func (h *handlers) listEPGSources(c *gin.Context) {
 }
 
 func (h *handlers) deleteEPGSource(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
+	id := strings.TrimSpace(c.Param("id"))
+	if _, err := uuid.Parse(id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad id"})
 		return
 	}

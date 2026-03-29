@@ -1,11 +1,14 @@
 package ginapi
 
 import (
+	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
+	"github.com/wallissonmarinho/GoTV/internal/core/domain"
 )
 
 func (h *handlers) registerM3USourceRoutes(admin *gin.RouterGroup) {
@@ -27,6 +30,14 @@ func (h *handlers) postM3USource(c *gin.Context) {
 	}
 	created, err := h.deps.Catalog.CreateM3USource(c.Request.Context(), u, strings.TrimSpace(body.Label))
 	if err != nil {
+		if errors.Is(err, domain.ErrDuplicateM3USourceURL) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, domain.ErrInvalidSourceURL) || errors.Is(err, domain.ErrInvalidM3USourceURLSuffix) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -43,8 +54,8 @@ func (h *handlers) listM3USources(c *gin.Context) {
 }
 
 func (h *handlers) deleteM3USource(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
+	id := strings.TrimSpace(c.Param("id"))
+	if _, err := uuid.Parse(id); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad id"})
 		return
 	}

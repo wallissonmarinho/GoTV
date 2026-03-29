@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/wallissonmarinho/GoTV/internal/adapters/storage"
+	persistmigrate "github.com/wallissonmarinho/GoTV/internal/persistence/migrate"
 )
 
 func runMigrateCLI(args []string) int {
@@ -39,7 +40,7 @@ func runMigrateCLI(args []string) int {
 	}
 	defer db.Close()
 
-	p, err := storage.NewMigrateProvider(db, pg)
+	p, err := persistmigrate.NewMigrateProvider(db, pg)
 	if err != nil {
 		lg.Println(err)
 		return 1
@@ -59,7 +60,7 @@ func runMigrateCLI(args []string) int {
 				return 2
 			}
 		}
-		err = storage.MigrateDownSteps(ctx, p, n)
+		err = persistmigrate.MigrateDownSteps(ctx, p, n)
 	case "version":
 		var v int64
 		v, err = p.GetDBVersion(ctx)
@@ -68,7 +69,7 @@ func runMigrateCLI(args []string) int {
 		}
 		_, _ = fmt.Fprintf(os.Stdout, "%d\n", v)
 	case "status":
-		err = storage.PrintMigrateStatus(ctx, p, os.Stdout)
+		err = persistmigrate.PrintMigrateStatus(ctx, p, os.Stdout)
 	case "goto":
 		if len(args) < 2 {
 			lg.Println("goto: missing VERSION")

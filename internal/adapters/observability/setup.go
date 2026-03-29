@@ -22,26 +22,37 @@ import (
 // TracerName is the default OpenTelemetry tracer scope name.
 const TracerName = "github.com/wallissonmarinho/GoTV"
 
-func otlpConfigured() bool {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_SDK_DISABLED")), "true") {
-		return false
-	}
-	for _, k := range []string{
-		"OTEL_EXPORTER_OTLP_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-	} {
-		if strings.TrimSpace(os.Getenv(k)) != "" {
-			return true
-		}
-	}
-	return false
+func otlpDisabled() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("OTEL_SDK_DISABLED")), "true")
 }
 
-// Setup configures slog and, when OTLP endpoint environment variables are set,
-// registers TracerProvider and LoggerProvider with OTLP HTTP exporters.
-// Always returns a slog.Logger that writes JSON to stderr; when OTLP is on,
-// the same records are also bridged to OpenTelemetry logs (with trace correlation).
+// otlpTracesConfigured reports whether OTLP trace export should run (HTTP exporter reads OTEL_* env).
+func otlpTracesConfigured() bool {
+	if otlpDisabled() {
+		return false
+	}
+	return strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")) != "" ||
+		strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")) != ""
+}
+
+// otlpLogsConfigured reports whether OTLP log export should run.
+// Logs are opt-in via OTEL_EXPORTER_OTLP_LOGS_ENDPOINT only: backends like Jaeger accept traces
+// at :4318 but return 404 on /v1/logs if we derive logs from the generic OTLP endpoint.
+func otlpLogsConfigured() bool {
+	if otlpDisabled() {
+		return false
+	}
+	return strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")) != ""
+}
+
+func otlpConfigured() bool {
+	return otlpTracesConfigured() || otlpLogsConfigured()
+}
+
+// Setup configures slog and, when OTLP environment variables are set, registers exporters.
+// Traces: OTEL_EXPORTER_OTLP_ENDPOINT and/or OTEL_EXPORTER_OTLP_TRACES_ENDPOINT.
+// Logs: only OTEL_EXPORTER_OTLP_LOGS_ENDPOINT (optional; use a collector that supports OTLP logs).
+// Always emits JSON logs to stderr; with OTLP logs on, the same records are bridged to OTel logs.
 func Setup(ctx context.Context) (shutdown func(context.Context) error, logger *slog.Logger, err error) {
 	stderr := slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})
 
@@ -61,37 +72,52 @@ func Setup(ctx context.Context) (shutdown func(context.Context) error, logger *s
 		return nil, nil, err
 	}
 
-	texp, err := otlptracehttp.New(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(texp),
-		sdktrace.WithResource(res),
-	)
-	otel.SetTracerProvider(tp)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
+	var shutdownFns []func(context.Context) error
 
-	lexp, err := otlploghttp.New(ctx)
-	if err != nil {
-		_ = tp.Shutdown(ctx)
-		return nil, nil, err
+	if otlpTracesConfigured() {
+		texp, err := otlptracehttp.New(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		tp := sdktrace.NewTracerProvider(
+			sdktrace.WithBatcher(texp),
+			sdktrace.WithResource(res),
+		)
+		otel.SetTracerProvider(tp)
+		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		))
+		shutdownFns = append(shutdownFns, tp.Shutdown)
 	}
-	batch := sdklog.NewBatchProcessor(lexp)
-	lp := sdklog.NewLoggerProvider(
-		sdklog.WithResource(res),
-		sdklog.WithProcessor(batch),
-	)
-	logglobal.SetLoggerProvider(lp)
 
-	otelHandler := otelslog.NewHandler("gotv", otelslog.WithLoggerProvider(lp))
-	logger = slog.New(newTeeHandler(stderr, otelHandler))
+	logger = slog.New(stderr)
+	if otlpLogsConfigured() {
+		lexp, err := otlploghttp.New(ctx)
+		if err != nil {
+			for _, fn := range shutdownFns {
+				_ = fn(ctx)
+			}
+			return nil, nil, err
+		}
+		batch := sdklog.NewBatchProcessor(lexp)
+		lp := sdklog.NewLoggerProvider(
+			sdklog.WithResource(res),
+			sdklog.WithProcessor(batch),
+		)
+		logglobal.SetLoggerProvider(lp)
+
+		otelHandler := otelslog.NewHandler("gotv", otelslog.WithLoggerProvider(lp))
+		logger = slog.New(newTeeHandler(stderr, otelHandler))
+		shutdownFns = append(shutdownFns, lp.Shutdown)
+	}
 
 	shutdown = func(shutdownCtx context.Context) error {
-		return errors.Join(tp.Shutdown(shutdownCtx), lp.Shutdown(shutdownCtx))
+		var errs []error
+		for _, fn := range shutdownFns {
+			errs = append(errs, fn(shutdownCtx))
+		}
+		return errors.Join(errs...)
 	}
 	return shutdown, logger, nil
 }

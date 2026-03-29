@@ -116,17 +116,61 @@ func RemapEPG(
 }
 
 func mapXMLChannelIDToStreamURL(epgChs []domain.EPGChannel, m3u []domain.Channel) map[string]string {
+	nameToURL := unambiguousNormalizedM3UNameToURL(m3u)
 	out := make(map[string]string)
 	for _, xc := range epgChs {
 		id := strings.TrimSpace(xc.ID)
 		if id == "" {
 			continue
 		}
-		if u := matchXMLChannelToURL(xc, m3u); u != "" {
+		if u := matchXMLChannelToURL(xc, m3u, nameToURL); u != "" {
 			out[id] = u
 		}
 	}
 	return out
+}
+
+// unambiguousNormalizedM3UNameToURL maps a normalized display label to a stream URL only when exactly
+// one distinct URL in this M3U batch carries that label (Name or TVGName). Ambiguous labels are omitted
+// so loose name matching cannot attach many EPG channels to the first playlist row that shares a label.
+func unambiguousNormalizedM3UNameToURL(m3u []domain.Channel) map[string]string {
+	tmp := make(map[string]map[string]struct{})
+	for _, c := range m3u {
+		u := NormalizeStreamURL(c.URL)
+		if u == "" {
+			continue
+		}
+		for _, label := range m3uDisplayLabels(c) {
+			key := normalizeNameForEPGMatch(label)
+			if key == "" {
+				continue
+			}
+			if tmp[key] == nil {
+				tmp[key] = make(map[string]struct{})
+			}
+			tmp[key][u] = struct{}{}
+		}
+	}
+	out := make(map[string]string)
+	for key, urlSet := range tmp {
+		if len(urlSet) != 1 {
+			continue
+		}
+		for u := range urlSet {
+			out[key] = u
+			break
+		}
+	}
+	return out
+}
+
+func normalizeNameForEPGMatch(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	s = foldAccents(s)
+	return strings.ToLower(s)
 }
 
 // MergeIndependentEPGs unions several XMLTV documents (channels and programmes deduped).
@@ -222,7 +266,7 @@ func BuildOutputEPGForPlaylist(merged []domain.Channel, mergedEPG *domain.EPGDat
 	return out
 }
 
-func matchXMLChannelToURL(xc domain.EPGChannel, m3u []domain.Channel) string {
+func matchXMLChannelToURL(xc domain.EPGChannel, m3u []domain.Channel, nameToUniqueURL map[string]string) string {
 	id := strings.TrimSpace(xc.ID)
 	for _, c := range m3u {
 		if strings.TrimSpace(c.TVGID) == id {
@@ -237,16 +281,14 @@ func matchXMLChannelToURL(xc domain.EPGChannel, m3u []domain.Channel) string {
 			}
 		}
 	}
-	for _, c := range m3u {
-		for _, label := range m3uDisplayLabels(c) {
-			cn := NormalizeName(label)
-			if cn == "" {
+	if nameToUniqueURL != nil {
+		for _, dn := range xc.DisplayNames {
+			key := normalizeNameForEPGMatch(dn)
+			if key == "" {
 				continue
 			}
-			for _, dn := range xc.DisplayNames {
-				if NormalizeName(dn) == cn {
-					return c.URL
-				}
+			if u, ok := nameToUniqueURL[key]; ok {
+				return u
 			}
 		}
 	}
