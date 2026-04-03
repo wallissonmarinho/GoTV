@@ -1,12 +1,17 @@
 # Deploy na VM Oracle (Docker Compose) após push na branch principal.
-# Na VM: /opt/go/GoAnimes, /opt/go/GoTV e /opt/go/deploy/oracle como em deploy/oracle/README.md
+# Build da imagem roda no GitHub Actions; na VM só docker pull + up (leve para Micro).
 #
-# Secrets no repositório GitHub (Settings → Secrets → Actions):
-#   OCI_VM_HOST      — IP ou hostname
-#   OCI_VM_USER      — ex.: ubuntu
-#   OCI_SSH_PRIVATE_KEY — chave privada PEM (multilinha) com acesso SSH à VM
+# Na VM: ${ROOT}/GoTV, ${ROOT}/deploy/oracle — ver deploy/oracle/README.md
+# Compose na VM GoTV: docker-compose.gotv.yml
 #
-# Opcional: OCI_DEPLOY_ROOT — default /opt/go
+# Secrets (Settings → Secrets → Actions):
+#   OCI_VM_HOST, OCI_VM_USER, OCI_SSH_PRIVATE_KEY
+#   OCI_DEPLOY_ROOT — opcional; default /opt/go (ex.: /home/ubuntu/www)
+#
+# Imagem: ghcr.io/<owner>/gotv:main (pública no GHCR ou use login abaixo)
+# Opcional (pacote GHCR privado):
+#   GHCR_PULL_TOKEN — PAT com read:packages
+#   GHCR_USER       — usuário GitHub (ex.: wallissonmarinho)
 name: oracle-deploy
 
 on:
@@ -17,6 +22,9 @@ on:
 concurrency:
   group: oracle-deploy-gotv-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  GOTV_IMAGE_TAG: main
 
 jobs:
   test:
@@ -31,27 +39,69 @@ jobs:
       - name: Test
         run: go test ./...
 
-  deploy:
+  image:
     needs: test
     runs-on: ubuntu-latest
-    env:
-      OCI_DEPLOY_ROOT: ${{ secrets.OCI_DEPLOY_ROOT }}
+    permissions:
+      contents: read
+      packages: write
     steps:
+      - uses: actions/checkout@v4
+
+      - name: GHCR owner (lowercase)
+        id: ghcr
+        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.ghcr.outputs.owner }}/gotv:${{ env.GOTV_IMAGE_TAG }}
+            ghcr.io/${{ steps.ghcr.outputs.owner }}/gotv:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: image
+    runs-on: ubuntu-latest
+    steps:
+      - name: GHCR owner for VM compose
+        id: ghcr
+        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Deploy GoTV on Oracle VM
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          OCI_DEPLOY_ROOT: ${{ secrets.OCI_DEPLOY_ROOT }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          GHCR_USER: ${{ secrets.GHCR_USER }}
+          GOTV_GHCR_OWNER: ${{ steps.ghcr.outputs.owner }}
+          GOTV_IMAGE_TAG: main
         with:
           host: ${{ secrets.OCI_VM_HOST }}
           username: ${{ secrets.OCI_VM_USER }}
           key: ${{ secrets.OCI_SSH_PRIVATE_KEY }}
-          envs: OCI_DEPLOY_ROOT
+          command_timeout: 30m
+          envs: OCI_DEPLOY_ROOT,GHCR_PULL_TOKEN,GHCR_USER,GOTV_GHCR_OWNER,GOTV_IMAGE_TAG
           script_stop: true
           script: |
             set -euo pipefail
             ROOT="${OCI_DEPLOY_ROOT:-/opt/go}"
-            cd "${ROOT}/GoTV"
-            git fetch origin "${{ github.ref_name }}"
-            git checkout "${{ github.ref_name }}"
-            git reset --hard "origin/${{ github.ref_name }}"
+            export GOTV_GHCR_OWNER="${GOTV_GHCR_OWNER}"
+            export GOTV_IMAGE_TAG="${GOTV_IMAGE_TAG:-main}"
+            if [ -n "${GHCR_PULL_TOKEN:-}" ]; then
+              echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u "${GHCR_USER:-${GOTV_GHCR_OWNER}}" --password-stdin
+            fi
             cd "${ROOT}/deploy/oracle"
-            docker compose build gotv
-            docker compose up -d gotv
+            docker compose -f docker-compose.gotv.yml pull gotv
+            docker compose -f docker-compose.gotv.yml up -d gotv
