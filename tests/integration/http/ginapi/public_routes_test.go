@@ -22,6 +22,14 @@ func TestEndpoint_GET_health(t *testing.T) {
 	require.Equal(t, "ok", w.Body.String())
 }
 
+func TestEndpoint_HEAD_health(t *testing.T) {
+	e := newTestEngine(ginapi.Config{}, testDeps(&state.MemoryStore{}))
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, httptest.NewRequest(http.MethodHead, "/health", nil))
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Empty(t, w.Body.String())
+}
+
 func TestEndpoint_GET_playlist_m3u_empty_store_404(t *testing.T) {
 	e := newTestEngine(ginapi.Config{}, testDeps(&state.MemoryStore{}))
 	w := httptest.NewRecorder()

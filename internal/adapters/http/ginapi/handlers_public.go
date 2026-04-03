@@ -8,12 +8,17 @@ import (
 
 func (h *handlers) registerPublic(engine *gin.Engine) {
 	engine.GET("/health", h.getHealth)
+	engine.HEAD("/health", h.headHealth)
 	engine.GET("/playlist.m3u", h.getPlaylistM3U)
 	engine.GET("/epg.xml", h.getEPGXML)
 }
 
 func (h *handlers) getHealth(c *gin.Context) {
 	c.String(http.StatusOK, "ok")
+}
+
+func (h *handlers) headHealth(c *gin.Context) {
+	c.Status(http.StatusOK)
 }
 
 func (h *handlers) getPlaylistM3U(c *gin.Context) {
