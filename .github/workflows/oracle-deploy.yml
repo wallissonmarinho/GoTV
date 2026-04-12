@@ -1,25 +1,15 @@
-# Deploy na VM Oracle (Docker Compose) após push na branch principal.
-# Build da imagem roda no GitHub Actions; na VM só docker pull + build goai + up (leve para Micro).
+# Deploy só **GoTV** na VM Oracle (Docker Compose). GoAI tem oracle-deploy próprio no repo GoAI.
+# Build da imagem no GitHub Actions; na VM: docker pull gotv + recreate gotv.
 #
-# Job deploy: environment: prd → Secrets/Variables do ambiente **prd** são passados por SSH e gravados em
-# deploy/oracle/.env.gotv.deploy na VM (igual ideia ao GoAnimes + .env.goanimes.deploy).
-# Na VM, .env manual fica sobretudo para ACME_EMAIL (Caddy). Não é obrigatório pôr GOAI_* no .env:
-# vêm do prd → .env.gotv.deploy neste job.
+# Job deploy: environment **prd** → grava deploy/oracle/.env.gotv.deploy (só variáveis GoTV).
 #
-# Na VM: ${ROOT}/GoTV, ${ROOT}/GoAI, ${ROOT}/deploy/oracle — ver deploy/oracle/README.md
+# Na VM: ${ROOT}/GoTV, ${ROOT}/deploy/oracle — ver deploy/oracle/README.md
 # Compose: docker-compose.gotv.yml
 #
-# Repository secrets (Settings → Secrets and variables → Actions):
-#   OCI_VM_HOST, OCI_VM_USER, OCI_SSH_PRIVATE_KEY
-#   OCI_DEPLOY_ROOT — opcional; default /opt/go (ex.: /home/ubuntu/www)
-#   GHCR_PULL_TOKEN, GHCR_USER — opcional (imagem GHCR privada)
+# Repository secrets: OCI_VM_HOST, OCI_VM_USER, OCI_SSH_PRIVATE_KEY, OCI_DEPLOY_ROOT (opcional), GHCR_* (opcional)
 #
-# Environment **prd** (Settings → Environments → prd → Environment secrets):
-#   GOAI_ADMIN_API_KEY, GOAI_GEMINI_API_KEYS
-#   GOTV_ADMIN_API_KEY — opcional (admin GoTV)
-#
-# Environment **prd** — Environment variables:
-#   GOAI_GEMINI_MODEL — opcional, ex. gemini-flash-latest
+# Environment **prd** — secrets: GOTV_ADMIN_API_KEY (opcional)
+# Environment **prd** — variables: (reservado para tuning GoTV no futuro)
 #
 # Imagem: ghcr.io/<owner>/gotv:main
 name: oracle-deploy
@@ -98,16 +88,13 @@ jobs:
           GHCR_USER: ${{ secrets.GHCR_USER }}
           GOTV_GHCR_OWNER: ${{ steps.ghcr.outputs.owner }}
           GOTV_IMAGE_TAG: main
-          GOAI_ADMIN_API_KEY: ${{ secrets.GOAI_ADMIN_API_KEY }}
-          GOAI_GEMINI_API_KEYS: ${{ secrets.GOAI_GEMINI_API_KEYS }}
           GOTV_ADMIN_API_KEY: ${{ secrets.GOTV_ADMIN_API_KEY }}
-          GOAI_GEMINI_MODEL: ${{ vars.GOAI_GEMINI_MODEL }}
         with:
           host: ${{ secrets.OCI_VM_HOST }}
           username: ${{ secrets.OCI_VM_USER }}
           key: ${{ secrets.OCI_SSH_PRIVATE_KEY }}
           command_timeout: 30m
-          envs: OCI_DEPLOY_ROOT,GHCR_PULL_TOKEN,GHCR_USER,GOTV_GHCR_OWNER,GOTV_IMAGE_TAG,GOAI_ADMIN_API_KEY,GOAI_GEMINI_API_KEYS,GOTV_ADMIN_API_KEY,GOAI_GEMINI_MODEL
+          envs: OCI_DEPLOY_ROOT,GHCR_PULL_TOKEN,GHCR_USER,GOTV_GHCR_OWNER,GOTV_IMAGE_TAG,GOTV_ADMIN_API_KEY
           script_stop: true
           script: |
             set -euo pipefail
@@ -124,9 +111,6 @@ jobs:
               [ -n "${_v}" ] || return 0
               printf '%s=%s\n' "${_k}" "${_v}" >> "${DEPLOY_ENV}"
             }
-            write_kv GOAI_ADMIN_API_KEY "${GOAI_ADMIN_API_KEY:-}"
-            write_kv GOAI_GEMINI_API_KEYS "${GOAI_GEMINI_API_KEYS:-}"
-            write_kv GOAI_GEMINI_MODEL "${GOAI_GEMINI_MODEL:-}"
             write_kv GOTV_ADMIN_API_KEY "${GOTV_ADMIN_API_KEY:-}"
             chmod 600 "${DEPLOY_ENV}" || true
             if [ -n "${GHCR_PULL_TOKEN:-}" ]; then
@@ -134,10 +118,4 @@ jobs:
             fi
             cd "${ORACLE_DIR}"
             docker compose -f docker-compose.gotv.yml pull gotv
-            if docker compose -f docker-compose.gotv.yml pull goai; then
-              echo "goai: using image from GHCR"
-            else
-              echo "goai: GHCR pull failed, building from ../../GoAI"
-              docker compose -f docker-compose.gotv.yml build goai
-            fi
-            docker compose -f docker-compose.gotv.yml up -d --force-recreate gotv goai
+            docker compose -f docker-compose.gotv.yml up -d --force-recreate gotv
